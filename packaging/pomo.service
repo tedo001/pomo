@@ -1,0 +1,47 @@
+# Pomo — systemd *user* service.
+#
+# A user service, not a system one: your journal and habit history is personal data that
+# belongs under your own account, not to a system daemon running as another user. It also
+# means no root is needed to install, start, or update it.
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp packaging/pomo.service ~/.config/systemd/user/
+#   $EDITOR ~/.config/systemd/user/pomo.service     # set WorkingDirectory
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now pomo
+#
+# Then open http://localhost:4000
+#
+# Without `loginctl enable-linger $USER`, a user service stops when your last session
+# ends. Enable lingering if you want it running on a headless box.
+
+[Unit]
+Description=Pomo — focus, habits and journal
+Documentation=https://github.com/tedo001/pomo
+After=network.target
+
+[Service]
+Type=simple
+
+# Absolute path to your clone. systemd does not expand ~, so write it out in full.
+WorkingDirectory=%h/pomo
+ExecStart=/usr/bin/node server/index.js
+
+Environment=POMO_PORT=4000
+# Keep the database outside the clone so `git clean` or a re-clone cannot delete it.
+Environment=POMO_DATA=%h/.local/share/pomo/pomo.sqlite
+# Uncomment to require a bearer token (also enter it in the app's settings).
+# Environment=POMO_TOKEN=change-me
+
+Restart=on-failure
+RestartSec=5
+
+# The service only ever needs to read its clone and write its own data directory.
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/pomo
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

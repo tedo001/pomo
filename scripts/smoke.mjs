@@ -272,6 +272,19 @@ async function main() {
     serverTasks.rows.every((row) => !("dirty" in row)),
   );
 
+  // The server doubles as the app host for self-hosted installs; prove that path too,
+  // including the traversal guard, since it is reachable from any browser on the LAN.
+  const selfHosted = await fetch(`http://localhost:${API_PORT}/`);
+  check(
+    "the server also hosts the built app on the same port",
+    selfHosted.ok && (selfHosted.headers.get("content-type") ?? "").startsWith("text/html"),
+    `status=${selfHosted.status}`,
+  );
+  const spaFallback = await fetch(`http://localhost:${API_PORT}/deep/route`);
+  check("unknown paths fall back to the app, not a 404", spaFallback.ok);
+  const traversal = await (await fetch(`http://localhost:${API_PORT}/../../../../etc/passwd`)).text();
+  check("path traversal cannot escape the static root", !traversal.includes("root:"));
+
   // A second browser profile pointed at the same server must receive the data — this
   // is the whole point of having a backend at all.
   const second = await browser.newContext({ viewport: { width: 1280, height: 900 } });

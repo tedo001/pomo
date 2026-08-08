@@ -8,6 +8,10 @@
  * incremental pull, and the table name for routing. Keeping the payload opaque means
  * adding a field to the client needs no server migration.
  *
+ * It also serves the built app from `dist/` when that directory exists, so a self-hosted
+ * install is one process on one port rather than a dev server plus an API — and being
+ * same-origin means the browser never has to be talked into a cross-origin request.
+ *
  *   node server/index.js
  *   POMO_PORT=4000 POMO_TOKEN=secret POMO_DATA=./server/data node server/index.js
  *
@@ -18,14 +22,38 @@
  */
 
 import { createServer } from "node:http";
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs";
+import { dirname, extname, join, resolve, sep } from "node:path";
+
+// node:sqlite arrived in Node 22.5 and stopped needing a flag in 22.13 / 23.4. Without
+// this guard an older Node fails with an opaque "cannot find module" for a builtin.
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = await import("node:sqlite"));
+} catch {
+  console.error(
+    `Pomo's server needs Node 22.13+ (or 23.4+) for the built-in SQLite module.\n` +
+      `This is ${process.version}. On Arch Linux: sudo pacman -S nodejs`,
+  );
+  process.exit(1);
+}
 
 const PORT = Number(process.env.POMO_PORT ?? 4000);
 const TOKEN = process.env.POMO_TOKEN ?? "";
 const DATA_PATH = resolve(process.env.POMO_DATA ?? "server/data/pomo.sqlite");
+const STATIC_ROOT = resolve(process.env.POMO_STATIC ?? "dist");
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+const CONTENT_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+};
 
 /** Mirrors SYNCED_TABLES on the client. An unknown table is rejected, not created. */
 const TABLES = new Set([
@@ -116,6 +144,35 @@ function readBody(request) {
   });
 }
 
+/**
+ * Serves the built app. Single-page routing means an unknown path falls back to
+ * index.html rather than 404ing, and the resolved path is checked to stay inside
+ * STATIC_ROOT so `GET /../../etc/passwd` cannot escape the directory.
+ */
+function serveStatic(pathname, response) {
+  if (!existsSync(STATIC_ROOT)) {
+    return send(response, 404, {
+      error: "No built app to serve. Run `npm run build`, or use `npm run dev` for the dev server.",
+    });
+  }
+
+  const requested = resolve(join(STATIC_ROOT, decodeURIComponent(pathname)));
+  const inside = requested === STATIC_ROOT || requested.startsWith(STATIC_ROOT + sep);
+  let file = inside && existsSync(requested) && statSync(requested).isFile() ? requested : null;
+  if (!file) file = join(STATIC_ROOT, "index.html");
+  if (!existsSync(file)) return send(response, 404, { error: "Not found" });
+
+  const type = CONTENT_TYPES[extname(file)] ?? "application/octet-stream";
+  // Vite fingerprints asset filenames, so those are immutable; index.html must not be
+  // cached or a rebuild would keep serving the old bundle references.
+  const cacheControl = file.includes(`${sep}assets${sep}`)
+    ? "public, max-age=31536000, immutable"
+    : "no-cache";
+
+  response.writeHead(200, { "content-type": type, "cache-control": cacheControl });
+  createReadStream(file).pipe(response);
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
 
@@ -126,10 +183,12 @@ const server = createServer(async (request, response) => {
     return send(response, 200, { ok: true, name: "pomo-local-server", records: n, data: DATA_PATH });
   }
 
-  if (!authorized(request)) return send(response, 401, { error: "Bad or missing bearer token" });
-
   const match = url.pathname.match(/^\/records\/([A-Za-z]+)$/);
-  if (!match) return send(response, 404, { error: "Not found" });
+  // Anything that is not an API route is the app itself. Served before the token check
+  // on purpose: the page has to load before the user can enter a token in it.
+  if (!match) return serveStatic(url.pathname, response);
+
+  if (!authorized(request)) return send(response, 401, { error: "Bad or missing bearer token" });
 
   const table = match[1];
   if (!TABLES.has(table)) return send(response, 400, { error: `Unknown table “${table}”` });
@@ -180,8 +239,14 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Pomo local server on http://localhost:${PORT}`);
+  const servingApp = existsSync(STATIC_ROOT);
+  console.log(`Pomo server on http://localhost:${PORT}`);
   console.log(`  data:  ${DATA_PATH}`);
   console.log(`  token: ${TOKEN ? "required" : "none (set POMO_TOKEN to require one)"}`);
-  console.log(`\nIn the app: Settings → Where your data lives → Local storage server.`);
+  console.log(`  app:   ${servingApp ? STATIC_ROOT : "not built — run `npm run build` to serve it from here"}`);
+  console.log(
+    servingApp
+      ? `\nOpen http://localhost:${PORT} and set Settings → Where your data lives → Local storage server\nto http://localhost:${PORT}.`
+      : `\nIn the app: Settings → Where your data lives → Local storage server.`,
+  );
 });

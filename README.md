@@ -28,6 +28,70 @@ node scripts/smoke.mjs   # full end-to-end run in a real browser
 
 ---
 
+## Running it on Arch Linux
+
+Everything here is plain Node and a browser — no native modules, nothing to build against
+system libraries, no AUR package needed.
+
+```bash
+sudo pacman -S nodejs npm git
+git clone https://github.com/tedo001/pomo.git ~/pomo
+cd ~/pomo
+npm install
+npm run build
+```
+
+The bundled server hosts **both** the app and the sync API on one port, so a self-hosted
+install is a single process:
+
+```bash
+mkdir -p ~/.local/share/pomo
+POMO_DATA=~/.local/share/pomo/pomo.sqlite npm run server
+```
+
+Open <http://localhost:4000>, then set **Settings → Where your data lives → Local storage
+server** to `http://localhost:4000`. Keeping the database in `~/.local/share/pomo` rather
+than inside the clone means `git clean` or a re-clone can't delete your history.
+
+### Keep it running with systemd
+
+[`packaging/pomo.service`](packaging/pomo.service) is a **user** unit — no root, and your
+journal stays under your own account:
+
+```bash
+mkdir -p ~/.config/systemd/user ~/.local/share/pomo
+cp packaging/pomo.service ~/.config/systemd/user/
+$EDITOR ~/.config/systemd/user/pomo.service     # check WorkingDirectory
+systemctl --user daemon-reload
+systemctl --user enable --now pomo
+systemctl --user status pomo
+```
+
+On a headless box, `loginctl enable-linger $USER` keeps it alive after you log out.
+Logs go to `journalctl --user -u pomo -f`.
+
+### Notes for Arch specifically
+
+- **Node version.** The server uses Node's built-in `node:sqlite`, which needs Node
+  22.13+. Arch's `nodejs` is well past that. If you're on an older `nodejs-lts-*`, the
+  server tells you so instead of failing with a stack trace.
+- **Desktop notifications** work over `localhost` without TLS. Under Wayland/GNOME or KDE
+  they route through your normal notification daemon; on a bare WM, install one (e.g.
+  `dunst`) or the browser has nowhere to draw them. The audio chime works regardless.
+- **Install it as a proper app window.** In Chromium/Brave: ⋮ → *Cast, save and share* →
+  *Install page as app*. In Firefox, use `firefox --kiosk http://localhost:4000` or a
+  `.desktop` launcher. You get a dock entry and a window without browser chrome.
+- **Backups.** The whole database is one file — `~/.local/share/pomo/pomo.sqlite`. Point
+  your existing backup at it, or use **Export backup** in the app for a portable JSON copy.
+
+### Just want it on this machine, no server?
+
+Skip all of the above. `npm run dev` (or `npm run build && npm run preview`) is enough —
+data lives in your browser's IndexedDB. The server is only needed when you want a second
+device, or a database file you can back up and grep.
+
+---
+
 ## What's in it
 
 **Focus timer.** Configurable focus / short break / long break, cycle tracking, auto-start,
@@ -81,7 +145,8 @@ to move it somewhere else.
 ### 3. Local storage server
 
 A single-file Node server in [`server/index.js`](server/index.js) — standard library only,
-no dependencies, stores everything in one SQLite file on your machine.
+no dependencies, stores everything in one SQLite file on your machine. If you have run
+`npm run build`, it serves the app itself on the same port, so self-hosting is one process.
 
 ```bash
 npm run server                                   # http://localhost:4000
@@ -89,12 +154,14 @@ POMO_PORT=4000 POMO_TOKEN=secret npm run server  # require a bearer token
 ```
 
 Then **Settings → Local storage server**, enter the URL (and token, if you set one).
+See [Running it on Arch Linux](#running-it-on-arch-linux) for a systemd setup.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POMO_PORT` | `4000` | Port to listen on |
 | `POMO_TOKEN` | *(none)* | If set, requests must send `Authorization: Bearer <token>` |
 | `POMO_DATA` | `server/data/pomo.sqlite` | SQLite file path |
+| `POMO_STATIC` | `dist` | Directory to serve the built app from |
 
 ### Bring your own backend
 
@@ -130,7 +197,8 @@ src/
       sync-engine.ts    push-then-pull, last-write-wins
   store/                zustand stores (settings, timer, sync status)
   features/             one folder per screen
-server/index.js         the bundled local storage server
+server/index.js         the bundled local storage server (also hosts the built app)
+packaging/pomo.service  systemd user unit for a self-hosted install
 supabase/schema.sql     the Supabase schema
 scripts/smoke.mjs       end-to-end browser run
 ```
@@ -167,14 +235,15 @@ sessions, so a deleted session can't leave a task claiming work that no longer e
 
 ```bash
 npm test                 # 37 unit tests: timer math, analytics, sync engine
-node scripts/smoke.mjs   # 21 end-to-end checks in a real browser
+node scripts/smoke.mjs   # 24 end-to-end checks in a real browser
 SMOKE_SHOTS=1 node scripts/smoke.mjs   # ...and write screenshots to .smoke/
 ```
 
 The smoke run boots the production build and the local server, then drives the real UI:
 creates an area and a task, runs and reloads a live session, checks a habit in, writes a
-journal entry, renders the charts against seeded history, syncs to the server, and confirms
-a second browser profile pulls the same data down.
+journal entry, renders the charts against seeded history, syncs to the server, confirms a
+second browser profile pulls the same data down, and checks the self-hosted single-port
+path including its directory-traversal guard.
 
 ---
 
