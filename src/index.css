@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Both themes define every token on their own selector so no color has
+ * its only definition inside a media query — a half-defined palette is how "system"
+ * users end up with black text on a black background.
+ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+:root {
+  --bg: #0b0f14;
+  --surface: #121821;
+  --surface-2: #18202b;
+  --border: #232d3b;
+  --text: #e6edf6;
+  --muted: #8695ab;
+  --accent: #ff6b5a;
+  --accent-soft: rgba(255, 107, 90, 0.14);
+  --focus: #ff6b5a;
+  --rest: #3ecf8e;
+  --info: #5aa9ff;
+  --warn: #f2c14e;
+  --ring: rgba(255, 107, 90, 0.45);
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #dfe3e9;
+  --text: #131a24;
+  --muted: #5d6b7f;
+  --accent: #e0503f;
+  --accent-soft: rgba(224, 80, 63, 0.1);
+  --focus: #e0503f;
+  --rest: #17915d;
+  --info: #2f7fd6;
+  --warn: #b8860b;
+  --ring: rgba(224, 80, 63, 0.35);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Tabular figures keep the countdown from jittering as digits change width. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
