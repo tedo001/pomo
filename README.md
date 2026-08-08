@@ -34,12 +34,19 @@ Everything here is plain Node and a browser — no native modules, nothing to bu
 system libraries, no AUR package needed.
 
 ```bash
-sudo pacman -S nodejs npm git
+sudo pacman -Syu nodejs npm git      # -Syu, not -S — see the partial-upgrade note below
 git clone https://github.com/tedo001/pomo.git ~/pomo
 cd ~/pomo
 npm install
 npm run build
 ```
+
+> **Use `-Syu`, never a bare `-S`.** Arch does not support partial upgrades: `pacman -S
+> nodejs` on a system that hasn't been updated in a while installs a Node built against a
+> newer glibc than you have, and it dies immediately with
+> `node: /usr/lib/libm.so.6: version 'GLIBC_2.xx' not found`. The fix is a full
+> `sudo pacman -Syu` (add a second `y` — `-Syyu` — if mirrors 404, which means your
+> package database is stale), then reboot.
 
 The bundled server hosts **both** the app and the sync API on one port, so a self-hosted
 install is a single process:
@@ -75,6 +82,13 @@ Logs go to `journalctl --user -u pomo -f`.
 - **Node version.** The server uses Node's built-in `node:sqlite`, which needs Node
   22.13+. Arch's `nodejs` is well past that. If you're on an older `nodejs-lts-*`, the
   server tells you so instead of failing with a stack trace.
+- **Don't want to upgrade the whole system yet?** Skip the distro package and use a
+  version manager — official Node builds link against a much older glibc, so they run on a
+  system Arch's own package would not:
+  ```bash
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+  exec $SHELL && nvm install 24
+  ```
 - **Desktop notifications** work over `localhost` without TLS. Under Wayland/GNOME or KDE
   they route through your normal notification daemon; on a bare WM, install one (e.g.
   `dunst`) or the browser has nowhere to draw them. The audio chime works regardless.
